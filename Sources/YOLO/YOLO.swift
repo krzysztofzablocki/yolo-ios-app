@@ -34,7 +34,7 @@ public class YOLO: @unchecked Sendable {
   }
 
   public init(
-    _ modelPathOrName: String, task: YOLOTask, completion: ((Result<YOLO, Error>) -> Void)? = nil
+    _ modelPathOrName: String, task: YOLOTask, bundle: Bundle = .main, completion: ((Result<YOLO, Error>) -> Void)? = nil
   ) {
     var modelURL: URL?
 
@@ -47,10 +47,10 @@ public class YOLO: @unchecked Sendable {
         modelURL = possibleURL
       }
     } else {
-      if let compiledURL = Bundle.main.url(forResource: modelPathOrName, withExtension: "mlmodelc")
+      if let compiledURL = bundle.url(forResource: modelPathOrName, withExtension: "mlmodelc")
       {
         modelURL = compiledURL
-      } else if let packageURL = Bundle.main.url(
+      } else if let packageURL = bundle.url(
         forResource: modelPathOrName, withExtension: "mlpackage")
       {
         modelURL = packageURL
