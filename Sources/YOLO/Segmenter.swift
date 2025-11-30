@@ -240,14 +240,14 @@ public class Segmenter: BasePredictor, @unchecked Sendable {
       logPhase("6_generate_masks", since: phase6Start)
 
       // Phase 7: Draw annotations
-      let phase7Start = CACurrentMediaTime()
-      let annotatedImage = drawYOLOSegmentationWithBoxes(
-        ciImage: image,
-        boxes: boxes,
-        maskImage: processedMasks.0,
-        originalImageSize: inputSize
-      )
-      logPhase("7_draw_annotations", since: phase7Start)
+//      let phase7Start = CACurrentMediaTime()
+//      let annotatedImage = drawYOLOSegmentationWithBoxes(
+//        ciImage: image,
+//        boxes: boxes,
+//        maskImage: processedMasks.0,
+//        originalImageSize: inputSize
+//      )
+//      logPhase("7_draw_annotations", since: phase7Start)
 
       // Phase 8: Construct result
       let phase8Start = CACurrentMediaTime()
@@ -258,7 +258,7 @@ public class Segmenter: BasePredictor, @unchecked Sendable {
         orig_shape: inputSize,
         boxes: boxes,
         masks: maskResults,
-        annotatedImage: annotatedImage,
+        annotatedImage: nil,//annotatedImage,
         speed: self.t2,
         fps: 1 / self.t4,
         names: labels
@@ -441,15 +441,15 @@ public class Segmenter: BasePredictor, @unchecked Sendable {
       }
       logPhase("10_generate_masks", since: phase10Start)
 
-      // Phase 11: Draw annotations
-      let phase11Start = CACurrentMediaTime()
-      let annotatedImage = drawYOLOSegmentationWithBoxes(
-        ciImage: image,
-        boxes: boxes,
-        maskImage: processedMasks.0,
-        originalImageSize: inputSize
-      )
-      logPhase("11_draw_annotations", since: phase11Start)
+//      // Phase 11: Draw annotations
+//      let phase11Start = CACurrentMediaTime()
+//      let annotatedImage = drawYOLOSegmentationWithBoxes(
+//        ciImage: image,
+//        boxes: boxes,
+//        maskImage: processedMasks.0,
+//        originalImageSize: inputSize
+//      )
+//      logPhase("11_draw_annotations", since: phase11Start)
 
       // Phase 12: Construct final result
       let phase12Start = CACurrentMediaTime()
@@ -460,7 +460,7 @@ public class Segmenter: BasePredictor, @unchecked Sendable {
         orig_shape: inputSize,
         boxes: boxes,
         masks: maskResults,
-        annotatedImage: annotatedImage,
+        annotatedImage: nil,
         speed: self.t2,
         fps: 1 / self.t4,
         names: labels
