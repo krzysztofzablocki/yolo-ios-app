@@ -19,6 +19,9 @@ import Vision
 /// Specialized predictor for YOLO classification models that identify the subject of an image.
 public class Classifier: BasePredictor, @unchecked Sendable {
 
+  /// Override predictor name for logging
+  override var predictorName: String { "ClassifyFast" }
+
   override func setConfidenceThreshold(confidence: Double) {
     confidenceThreshold = confidence
     detector?.featureProvider = ThresholdProvider(
@@ -207,5 +210,85 @@ public class Classifier: BasePredictor, @unchecked Sendable {
     let annotatedImage = drawYOLOClassifications(on: image, result: result)
     result.annotatedImage = annotatedImage
     return result
+  }
+
+  // MARK: - Fast Prediction Override
+
+  /// Override to parse classification results for fast prediction path.
+  override func parseResultsFast(request: VNRequest, originalImage: CIImage, originalSize: CGSize) -> YOLOResult {
+    var probs = Probs(top1: "", top5: [], top1Conf: 0, top5Confs: [])
+
+    if let observation = request.results as? [VNCoreMLFeatureValueObservation] {
+      let multiArray = observation.first?.featureValue.multiArrayValue
+
+      if let multiArray = multiArray {
+        var valuesArray = [Double]()
+        for i in 0..<multiArray.count {
+          let value = multiArray[i].doubleValue
+          valuesArray.append(value)
+        }
+
+        var indexedMap = [Int: Double]()
+        for (index, value) in valuesArray.enumerated() {
+          indexedMap[index] = value
+        }
+
+        let sortedMap = indexedMap.sorted { $0.value > $1.value }
+
+        // top1
+        if let (topIndex, topScore) = sortedMap.first {
+          let top1Label = labels[topIndex]
+          let top1Conf = Float(topScore)
+          probs.top1 = top1Label
+          probs.top1Conf = top1Conf
+        }
+
+        // top5
+        let topObservations = sortedMap.prefix(5)
+        var top5Labels: [String] = []
+        var top5Confs: [Float] = []
+
+        for (index, value) in topObservations {
+          top5Labels.append(labels[index])
+          top5Confs.append(Float(value))
+        }
+
+        probs.top5 = top5Labels
+        probs.top5Confs = top5Confs
+      }
+    } else if let observations = request.results as? [VNClassificationObservation] {
+      var top1 = ""
+      var top1Conf: Float = 0
+      var top5: [String] = []
+      var top5Confs: [Float] = []
+
+      var candidateNumber = 5
+      if observations.count < candidateNumber {
+        candidateNumber = observations.count
+      }
+      if let topObservation = observations.first {
+        top1 = topObservation.identifier
+        top1Conf = Float(topObservation.confidence)
+      }
+      for i in 0...candidateNumber - 1 {
+        let observation = observations[i]
+        let label = observation.identifier
+        let confidence: Float = Float(observation.confidence)
+        top5Confs.append(confidence)
+        top5.append(label)
+      }
+      probs = Probs(top1: top1, top5: top5, top1Conf: top1Conf, top5Confs: top5Confs)
+    }
+
+    // Update timing
+    if self.t1 < 10.0 {
+      self.t2 = self.t1 * 0.05 + self.t2 * 0.95
+    }
+    self.t4 = (CACurrentMediaTime() - self.t3) * 0.05 + self.t4 * 0.95
+    self.t3 = CACurrentMediaTime()
+
+    return YOLOResult(
+      orig_shape: originalSize, boxes: [], probs: probs, speed: self.t2, fps: 1 / self.t4,
+      names: labels)
   }
 }

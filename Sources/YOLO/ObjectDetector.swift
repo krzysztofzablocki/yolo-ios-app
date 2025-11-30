@@ -27,6 +27,9 @@ import Vision
 /// - SeeAlso: `Segmenter` for models that produce pixel-level masks for objects.
 public class ObjectDetector: BasePredictor, @unchecked Sendable {
 
+  /// Override predictor name for logging
+  override var predictorName: String { "DetectFast" }
+
   /// Sets the confidence threshold and updates the model's feature provider.
   ///
   /// This overridden method ensures that when the confidence threshold is changed,
@@ -151,5 +154,40 @@ public class ObjectDetector: BasePredictor, @unchecked Sendable {
     result.annotatedImage = annotatedImage
 
     return result
+  }
+
+  // MARK: - Fast Prediction Override
+
+  /// Override to parse object detection results for fast prediction path.
+  override func parseResultsFast(request: VNRequest, originalImage: CIImage, originalSize: CGSize) -> YOLOResult {
+    var boxes = [Box]()
+
+    if let results = request.results as? [VNRecognizedObjectObservation] {
+      for i in 0..<min(results.count, self.numItemsThreshold) {
+        let prediction = results[i]
+        let invertedBox = CGRect(
+          x: prediction.boundingBox.minX, y: 1 - prediction.boundingBox.maxY,
+          width: prediction.boundingBox.width, height: prediction.boundingBox.height)
+        let imageRect = VNImageRectForNormalizedRect(
+          invertedBox, Int(originalSize.width), Int(originalSize.height))
+
+        let label = prediction.labels[0].identifier
+        let index = self.labels.firstIndex(of: label) ?? 0
+        let confidence = prediction.labels[0].confidence
+        let box = Box(
+          index: index, cls: label, conf: confidence, xywh: imageRect, xywhn: invertedBox)
+        boxes.append(box)
+      }
+    }
+
+    // Update timing
+    if self.t1 < 10.0 {
+      self.t2 = self.t1 * 0.05 + self.t2 * 0.95
+    }
+    self.t4 = (CACurrentMediaTime() - self.t3) * 0.05 + self.t4 * 0.95
+    self.t3 = CACurrentMediaTime()
+
+    return YOLOResult(
+      orig_shape: originalSize, boxes: boxes, speed: self.t2, fps: 1 / self.t4, names: labels)
   }
 }

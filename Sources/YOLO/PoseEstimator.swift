@@ -21,6 +21,9 @@ import Vision
 public class PoseEstimator: BasePredictor, @unchecked Sendable {
   var colorsForMask: [(red: UInt8, green: UInt8, blue: UInt8)] = []
 
+  /// Override predictor name for logging
+  override var predictorName: String { "PoseFast" }
+
   override func processObservations(for request: VNRequest, error: Error?) {
     if let results = request.results as? [VNCoreMLFeatureValueObservation] {
 
@@ -55,6 +58,41 @@ public class PoseEstimator: BasePredictor, @unchecked Sendable {
 
     self.currentOnInferenceTimeListener?.on(inferenceTime: self.t2 * 1000, fpsRate: 1 / self.t4)  // t2 seconds to ms
 
+  }
+
+  // MARK: - Fast Prediction Override
+
+  /// Override to parse pose estimation results for fast prediction path.
+  override func parseResultsFast(request: VNRequest, originalImage: CIImage, originalSize: CGSize) -> YOLOResult {
+    if let results = request.results as? [VNCoreMLFeatureValueObservation],
+       let prediction = results.first?.featureValue.multiArrayValue {
+
+      let preds = PostProcessPose(
+        prediction: prediction, confidenceThreshold: Float(self.confidenceThreshold),
+        iouThreshold: Float(self.iouThreshold))
+      var keypointsList = [Keypoints]()
+      var boxes = [Box]()
+
+      let limitedPreds = preds.prefix(self.numItemsThreshold)
+      for person in limitedPreds {
+        boxes.append(person.box)
+        keypointsList.append(person.keypoints)
+      }
+
+      // Update timing
+      if self.t1 < 10.0 {
+        self.t2 = self.t1 * 0.05 + self.t2 * 0.95
+      }
+      self.t4 = (CACurrentMediaTime() - self.t3) * 0.05 + self.t4 * 0.95
+      self.t3 = CACurrentMediaTime()
+
+      return YOLOResult(
+        orig_shape: originalSize, boxes: boxes, masks: nil, probs: nil,
+        keypointsList: keypointsList, annotatedImage: nil, speed: self.t2,
+        fps: 1 / self.t4, originalImage: nil, names: labels)
+    }
+
+    return YOLOResult(orig_shape: originalSize, boxes: [], speed: 0, names: labels)
   }
 
   public override func predictOnImage(image: CIImage) -> YOLOResult {

@@ -65,6 +65,14 @@ public protocol Predictor {
   /// - Returns: A YOLOResult containing the prediction outputs.
   func predictOnImage(image: CIImage) -> YOLOResult
 
+  /// Performs optimized single-image prediction using CVPixelBuffer conversion.
+  /// This method is significantly faster than the standard prediction for single images,
+  /// as it uses the same native CVPixelBuffer path as camera inference.
+  ///
+  /// - Parameter image: The CIImage to process.
+  /// - Returns: A YOLOResult containing the prediction outputs.
+  func predictOnImageFast(image: CIImage) -> YOLOResult
+
   /// The class labels used by the model for categorizing detections.
   var labels: [String] { get set }
 

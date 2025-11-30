@@ -22,11 +22,8 @@ import Vision
 public class Segmenter: BasePredictor, @unchecked Sendable {
   var colorsForMask: [(red: UInt8, green: UInt8, blue: UInt8)] = []
 
-  /// Cached CIContext for efficient image rendering (reused across calls)
-  private let ciContext = CIContext(options: [
-    .useSoftwareRenderer: false,
-    .cacheIntermediates: false
-  ])
+  /// Override predictor name for logging
+  override var predictorName: String { "SegmentFast" }
 
   override func processObservations(for request: VNRequest, error: Error?) {
     if let results = request.results as? [VNCoreMLFeatureValueObservation] {
@@ -278,223 +275,95 @@ public class Segmenter: BasePredictor, @unchecked Sendable {
     return result
   }
 
-  // MARK: - Fast Single Image Prediction
+  // MARK: - Fast Prediction Override
 
-  /// Optimized single-image prediction using CVPixelBuffer instead of CIImage for faster Vision processing.
-  /// Includes detailed timing logs for performance analysis.
-  ///
-  /// - Parameter image: The CIImage to process.
-  /// - Returns: A YOLOResult containing the prediction outputs.
-  public func predictOnImageFast(image: CIImage) -> YOLOResult {
-    let totalStart = CACurrentMediaTime()
-    var timings: [(String, Double)] = []
-
-    func logPhase(_ name: String, since start: CFTimeInterval) {
-      let elapsed = (CACurrentMediaTime() - start) * 1000
-      timings.append((name, elapsed))
+  /// Override to parse segmentation results for fast prediction path.
+  override func parseResultsFast(request: VNRequest, originalImage: CIImage, originalSize: CGSize) -> YOLOResult {
+    guard let results = request.results as? [VNCoreMLFeatureValueObservation],
+          results.count == 2 else {
+      print("[SegmentFast] ERROR: Invalid results count: \(request.results?.count ?? 0)")
+      return YOLOResult(orig_shape: originalSize, boxes: [], speed: 0, names: labels)
     }
 
-    // Phase 1: Setup and validation
-    let phase1Start = CACurrentMediaTime()
-    guard let request = visionRequest else {
-      print("[SegmentFast] ERROR: No vision request available")
-      return YOLOResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
+    var pred: MLMultiArray
+    var masks: MLMultiArray
+    guard let out0 = results[0].featureValue.multiArrayValue,
+          let out1 = results[1].featureValue.multiArrayValue else {
+      print("[SegmentFast] ERROR: Failed to get multiArrayValue from results")
+      return YOLOResult(orig_shape: originalSize, boxes: [], speed: 0, names: labels)
     }
 
-    let originalWidth = image.extent.width
-    let originalHeight = image.extent.height
-    self.inputSize = CGSize(width: originalWidth, height: originalHeight)
+    let out0dim = checkShapeDimensions(of: out0)
+    if out0dim == 4 {
+      masks = out0
+      pred = out1
+    } else {
+      masks = out1
+      pred = out0
+    }
 
-    let targetWidth = modelInputSize.width
-    let targetHeight = modelInputSize.height
-    logPhase("1_setup_validation", since: phase1Start)
-
-    // Phase 2: Scale image to model input size
-    let phase2Start = CACurrentMediaTime()
-    let scaleX = CGFloat(targetWidth) / originalWidth
-    let scaleY = CGFloat(targetHeight) / originalHeight
-    let scaledImage = image.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
-    logPhase("2_image_scaling", since: phase2Start)
-
-    // Phase 3: Create CVPixelBuffer
-    let phase3Start = CACurrentMediaTime()
-    let attrs: [String: Any] = [
-      kCVPixelBufferCGImageCompatibilityKey as String: true,
-      kCVPixelBufferCGBitmapContextCompatibilityKey as String: true,
-      kCVPixelBufferMetalCompatibilityKey as String: true
-    ]
-
-    var pixelBuffer: CVPixelBuffer?
-    let status = CVPixelBufferCreate(
-      kCFAllocatorDefault,
-      targetWidth,
-      targetHeight,
-      kCVPixelFormatType_32BGRA,
-      attrs as CFDictionary,
-      &pixelBuffer
+    // Post-process detections (NMS, etc.)
+    let detectedObjects = postProcessSegment(
+      feature: pred,
+      confidenceThreshold: Float(self.confidenceThreshold),
+      iouThreshold: Float(self.iouThreshold)
     )
 
-    guard status == kCVReturnSuccess, let buffer = pixelBuffer else {
-      print("[SegmentFast] ERROR: Failed to create pixel buffer, status: \(status)")
-      return YOLOResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
-    }
-    logPhase("3_pixelbuffer_create", since: phase3Start)
+    // Construct bounding boxes
+    let detectionsCount = detectedObjects.count
+    var boxes: [Box] = []
+    boxes.reserveCapacity(detectionsCount)
 
-    // Phase 4: Render CIImage to CVPixelBuffer
-    let phase4Start = CACurrentMediaTime()
-    ciContext.render(scaledImage, to: buffer)
-    logPhase("4_cicontext_render", since: phase4Start)
+    let modelWidth = CGFloat(self.modelInputSize.width)
+    let modelHeight = CGFloat(self.modelInputSize.height)
+    let inputWidth = Int(originalSize.width)
+    let inputHeight = Int(originalSize.height)
 
-    // Phase 5: Create Vision request handler
-    let phase5Start = CACurrentMediaTime()
-    let requestHandler = VNImageRequestHandler(cvPixelBuffer: buffer, options: [:])
-    logPhase("5_handler_create", since: phase5Start)
-
-    // Phase 6: Perform Vision request (the main inference)
-    let phase6Start = CACurrentMediaTime()
-    var result = YOLOResult(orig_shape: .zero, boxes: [], speed: 0, names: labels)
-
-    do {
-      try requestHandler.perform([request])
-      logPhase("6_vision_perform", since: phase6Start)
-
-      // Phase 7: Parse model outputs
-      let phase7Start = CACurrentMediaTime()
-      guard let results = request.results as? [VNCoreMLFeatureValueObservation],
-            results.count == 2 else {
-        print("[SegmentFast] ERROR: Invalid results count: \(request.results?.count ?? 0)")
-        return YOLOResult(orig_shape: .zero, boxes: [], speed: 0, names: labels)
-      }
-
-      var pred: MLMultiArray
-      var masks: MLMultiArray
-      guard let out0 = results[0].featureValue.multiArrayValue,
-            let out1 = results[1].featureValue.multiArrayValue else {
-        print("[SegmentFast] ERROR: Failed to get multiArrayValue from results")
-        return YOLOResult(orig_shape: .zero, boxes: [], speed: 0, names: labels)
-      }
-
-      let out0dim = checkShapeDimensions(of: out0)
-      if out0dim == 4 {
-        masks = out0
-        pred = out1
-      } else {
-        masks = out1
-        pred = out0
-      }
-      logPhase("7_parse_outputs", since: phase7Start)
-
-      // Phase 8: Post-process detections (NMS, etc.)
-      let phase8Start = CACurrentMediaTime()
-      let detectedObjects = postProcessSegment(
-        feature: pred,
-        confidenceThreshold: Float(self.confidenceThreshold),
-        iouThreshold: Float(self.iouThreshold)
+    let limitedObjects = detectedObjects.prefix(self.numItemsThreshold)
+    for p in limitedObjects {
+      let box = p.0
+      let rect = CGRect(
+        x: box.minX / modelWidth, y: box.minY / modelHeight,
+        width: box.width / modelWidth, height: box.height / modelHeight
       )
-      logPhase("8_post_process_nms", since: phase8Start)
+      let confidence = p.2
+      let bestClass = p.1
+      let label = labels[bestClass]
+      let xywh = VNImageRectForNormalizedRect(rect, inputWidth, inputHeight)
 
-      // Phase 9: Construct bounding boxes
-      let phase9Start = CACurrentMediaTime()
-      let detectionsCount = detectedObjects.count
-      var boxes: [Box] = []
-      boxes.reserveCapacity(detectionsCount)
+      let boxResult = Box(
+        index: bestClass, cls: label, conf: confidence, xywh: xywh, xywhn: rect
+      )
+      boxes.append(boxResult)
+    }
 
-      let modelWidth = CGFloat(self.modelInputSize.width)
-      let modelHeight = CGFloat(self.modelInputSize.height)
-      let inputWidth = Int(inputSize.width)
-      let inputHeight = Int(inputSize.height)
-
-      let limitedObjects = detectedObjects.prefix(self.numItemsThreshold)
-      for p in limitedObjects {
-        let box = p.0
-        let rect = CGRect(
-          x: box.minX / modelWidth, y: box.minY / modelHeight,
-          width: box.width / modelWidth, height: box.height / modelHeight
-        )
-        let confidence = p.2
-        let bestClass = p.1
-        let label = labels[bestClass]
-        let xywh = VNImageRectForNormalizedRect(rect, inputWidth, inputHeight)
-
-        let boxResult = Box(
-          index: bestClass, cls: label, conf: confidence, xywh: xywh, xywhn: rect
-        )
-        boxes.append(boxResult)
-      }
-      logPhase("9_construct_boxes", since: phase9Start)
-
-      // Phase 10: Generate mask image
-      let phase10Start = CACurrentMediaTime()
-      guard let processedMasks = generateCombinedMaskImage(
-        detectedObjects: Array(limitedObjects),
-        protos: masks,
-        inputWidth: self.modelInputSize.width,
-        inputHeight: self.modelInputSize.height,
-        threshold: 0.5
-      ) as? (CGImage?, [[[Float]]]) else {
-        logPhase("10_generate_masks", since: phase10Start)
-        printTimingSummary(timings, totalStart: totalStart)
-        return YOLOResult(
-          orig_shape: inputSize, boxes: boxes, masks: nil, annotatedImage: nil, speed: 0,
-          names: labels
-        )
-      }
-      logPhase("10_generate_masks", since: phase10Start)
-
-//      // Phase 11: Draw annotations
-//      let phase11Start = CACurrentMediaTime()
-//      let annotatedImage = drawYOLOSegmentationWithBoxes(
-//        ciImage: image,
-//        boxes: boxes,
-//        maskImage: processedMasks.0,
-//        originalImageSize: inputSize
-//      )
-//      logPhase("11_draw_annotations", since: phase11Start)
-
-      // Phase 12: Construct final result
-      let phase12Start = CACurrentMediaTime()
-      let maskResults = Masks(masks: processedMasks.1, combinedMask: processedMasks.0)
-      updateTime()
-
-      result = YOLOResult(
-        orig_shape: inputSize,
-        boxes: boxes,
-        masks: maskResults,
-        annotatedImage: nil,
-        speed: self.t2,
-        fps: 1 / self.t4,
+    // Generate mask image
+    guard let processedMasks = generateCombinedMaskImage(
+      detectedObjects: Array(limitedObjects),
+      protos: masks,
+      inputWidth: self.modelInputSize.width,
+      inputHeight: self.modelInputSize.height,
+      threshold: 0.5
+    ) as? (CGImage?, [[[Float]]]) else {
+      return YOLOResult(
+        orig_shape: originalSize, boxes: boxes, masks: nil, annotatedImage: nil, speed: 0,
         names: labels
       )
-      logPhase("12_construct_result", since: phase12Start)
-
-      // Print timing summary
-      printTimingSummary(timings, totalStart: totalStart)
-
-      return result
-
-    } catch {
-      logPhase("6_vision_perform_ERROR", since: phase6Start)
-      print("[SegmentFast] ERROR: Vision perform failed: \(error)")
-      printTimingSummary(timings, totalStart: totalStart)
     }
 
-    return result
-  }
+    // Construct final result
+    let maskResults = Masks(masks: processedMasks.1, combinedMask: processedMasks.0)
+    updateTime()
 
-  /// Prints a formatted timing summary to console
-  private func printTimingSummary(_ timings: [(String, Double)], totalStart: CFTimeInterval, label: String = "SegmentFast") {
-    let totalMs = (CACurrentMediaTime() - totalStart) * 1000
-    print("\n[\(label)] ═══════════════════════════════════════")
-    print("[\(label)] TIMING BREAKDOWN (ms):")
-    print("[\(label)] ───────────────────────────────────────")
-    for (phase, ms) in timings {
-      let percentage = (ms / totalMs) * 100
-      let bar = String(repeating: "█", count: Int(percentage / 5))
-      print(String(format: "[\(label)] %-25s %7.2f ms (%5.1f%%) %@", (phase as NSString).utf8String!, ms, percentage, bar))
-    }
-    print("[\(label)] ───────────────────────────────────────")
-    print(String(format: "[\(label)] TOTAL:                    %7.2f ms", totalMs))
-    print("[\(label)] ═══════════════════════════════════════\n")
+    return YOLOResult(
+      orig_shape: originalSize,
+      boxes: boxes,
+      masks: maskResults,
+      annotatedImage: nil,
+      speed: self.t2,
+      fps: 1 / self.t4,
+      names: labels
+    )
   }
 
   nonisolated func postProcessSegment(

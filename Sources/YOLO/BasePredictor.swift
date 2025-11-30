@@ -72,6 +72,12 @@ public class BasePredictor: Predictor, @unchecked Sendable {
   /// Flag indicating whether the predictor is currently processing an update.
   public var isUpdating: Bool = false
 
+  /// Cached CIContext for efficient image rendering in fast prediction path (reused across calls).
+  private let ciContext = CIContext(options: [
+    .useSoftwareRenderer: false,
+    .cacheIntermediates: false
+  ])
+
   /// Required initializer for creating predictor instances.
   ///
   /// This empty initializer is required for the factory pattern used in the `create` method.
@@ -304,6 +310,140 @@ public class BasePredictor: Predictor, @unchecked Sendable {
     return YOLOResult(orig_shape: .zero, boxes: [], speed: 0, names: [])
   }
 
+  // MARK: - Fast Prediction Template
+
+  /// Optimized single-image prediction using CVPixelBuffer instead of CIImage for faster Vision processing.
+  /// This template method handles common infrastructure; subclasses override `parseResultsFast` for task-specific parsing.
+  ///
+  /// - Parameter image: The CIImage to process.
+  /// - Returns: A YOLOResult containing the prediction outputs.
+  public func predictOnImageFast(image: CIImage) -> YOLOResult {
+    let totalStart = CACurrentMediaTime()
+    var timings: [(String, Double)] = []
+
+    func logPhase(_ name: String, since start: CFTimeInterval) {
+      let elapsed = (CACurrentMediaTime() - start) * 1000
+      timings.append((name, elapsed))
+    }
+
+    // Phase 1: Setup and validation
+    let phase1Start = CACurrentMediaTime()
+    guard let request = visionRequest else {
+      print("[PredictFast] ERROR: No vision request available")
+      return YOLOResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
+    }
+
+    let originalWidth = image.extent.width
+    let originalHeight = image.extent.height
+    let originalSize = CGSize(width: originalWidth, height: originalHeight)
+    self.inputSize = originalSize
+
+    let targetWidth = modelInputSize.width
+    let targetHeight = modelInputSize.height
+    logPhase("1_setup_validation", since: phase1Start)
+
+    // Phase 2: Scale image to model input size
+    let phase2Start = CACurrentMediaTime()
+    let scaleX = CGFloat(targetWidth) / originalWidth
+    let scaleY = CGFloat(targetHeight) / originalHeight
+    let scaledImage = image.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+    logPhase("2_image_scaling", since: phase2Start)
+
+    // Phase 3: Create CVPixelBuffer
+    let phase3Start = CACurrentMediaTime()
+    let attrs: [String: Any] = [
+      kCVPixelBufferCGImageCompatibilityKey as String: true,
+      kCVPixelBufferCGBitmapContextCompatibilityKey as String: true,
+      kCVPixelBufferMetalCompatibilityKey as String: true
+    ]
+
+    var pixelBuffer: CVPixelBuffer?
+    let status = CVPixelBufferCreate(
+      kCFAllocatorDefault,
+      targetWidth,
+      targetHeight,
+      kCVPixelFormatType_32BGRA,
+      attrs as CFDictionary,
+      &pixelBuffer
+    )
+
+    guard status == kCVReturnSuccess, let buffer = pixelBuffer else {
+      print("[PredictFast] ERROR: Failed to create pixel buffer, status: \(status)")
+      return YOLOResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
+    }
+    logPhase("3_pixelbuffer_create", since: phase3Start)
+
+    // Phase 4: Render CIImage to CVPixelBuffer
+    let phase4Start = CACurrentMediaTime()
+    ciContext.render(scaledImage, to: buffer)
+    logPhase("4_cicontext_render", since: phase4Start)
+
+    // Phase 5: Create Vision request handler
+    let phase5Start = CACurrentMediaTime()
+    let requestHandler = VNImageRequestHandler(cvPixelBuffer: buffer, options: [:])
+    logPhase("5_handler_create", since: phase5Start)
+
+    // Phase 6: Perform Vision request (the main inference)
+    let phase6Start = CACurrentMediaTime()
+
+    do {
+      try requestHandler.perform([request])
+      logPhase("6_vision_perform", since: phase6Start)
+
+      // Phase 7: Parse results (subclass-specific)
+      let phase7Start = CACurrentMediaTime()
+      let result = parseResultsFast(request: request, originalImage: image, originalSize: originalSize)
+      logPhase("7_parse_results", since: phase7Start)
+
+      // Print timing summary
+      printTimingSummary(timings, totalStart: totalStart, label: predictorName)
+
+      return result
+
+    } catch {
+      logPhase("6_vision_perform_ERROR", since: phase6Start)
+      print("[PredictFast] ERROR: Vision perform failed: \(error)")
+      printTimingSummary(timings, totalStart: totalStart, label: predictorName)
+    }
+
+    return YOLOResult(orig_shape: inputSize, boxes: [], speed: 0, names: labels)
+  }
+
+  /// Override this method in subclasses to parse Vision results for fast prediction.
+  /// This method is called by `predictOnImageFast` after Vision inference completes.
+  ///
+  /// - Parameters:
+  ///   - request: The completed Vision request containing model outputs.
+  ///   - originalImage: The original CIImage (for annotation drawing if needed).
+  ///   - originalSize: The original image size before scaling.
+  /// - Returns: A YOLOResult containing the parsed prediction outputs.
+  func parseResultsFast(request: VNRequest, originalImage: CIImage, originalSize: CGSize) -> YOLOResult {
+    // Base implementation returns empty result - subclasses must override
+    return YOLOResult(orig_shape: originalSize, boxes: [], speed: t2, names: labels)
+  }
+
+  /// The name of this predictor type for logging purposes.
+  /// Subclasses can override to provide a specific name.
+  var predictorName: String {
+    return "Predict"
+  }
+
+  /// Prints a formatted timing summary to console.
+  func printTimingSummary(_ timings: [(String, Double)], totalStart: CFTimeInterval, label: String) {
+    let totalMs = (CACurrentMediaTime() - totalStart) * 1000
+    print("\n[\(label)] ═══════════════════════════════════════")
+    print("[\(label)] TIMING BREAKDOWN (ms):")
+    print("[\(label)] ───────────────────────────────────────")
+    for (phase, ms) in timings {
+      let percentage = (ms / totalMs) * 100
+      let bar = String(repeating: "█", count: Int(percentage / 5))
+      print(String(format: "[\(label)] %-25s %7.2f ms (%5.1f%%) %@", (phase as NSString).utf8String!, ms, percentage, bar))
+    }
+    print("[\(label)] ───────────────────────────────────────")
+    print(String(format: "[\(label)] TOTAL:                    %7.2f ms", totalMs))
+    print("[\(label)] ═══════════════════════════════════════\n")
+  }
+
   /// Extracts the required input dimensions from the model description.
   ///
   /// This utility method determines the expected input size for the CoreML model
@@ -315,7 +455,7 @@ public class BasePredictor: Predictor, @unchecked Sendable {
   func getModelInputSize(for model: MLModel) -> (width: Int, height: Int) {
     guard let inputDescription = model.modelDescription.inputDescriptionsByName.first?.value else {
       print("can not find input description")
-      return (0, 0)
+      return (640, 640)
     }
 
     if let multiArrayConstraint = inputDescription.multiArrayConstraint {
@@ -333,7 +473,7 @@ public class BasePredictor: Predictor, @unchecked Sendable {
       return (width: width, height: height)
     }
 
-    print("Cannot find input size")
-    return (0, 0)
+    print("Cannot find input size, using default 640x640")
+    return (640, 640)
   }
 }
