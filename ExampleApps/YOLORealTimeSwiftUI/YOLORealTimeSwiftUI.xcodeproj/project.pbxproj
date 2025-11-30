@@ -8,6 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		7314328D2D36176800919FF7 /* YOLO in Frameworks */ = {isa = PBXBuildFile; productRef = 7314328C2D36176800919FF7 /* YOLO */; };
+		CD20C0E02EDC81AD00900821 /* yolo11l-seg.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = CD20C0DD2EDC81AD00900821 /* yolo11l-seg.mlpackage */; };
+		CD20C0E12EDC81AD00900821 /* yolo11m.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = CD20C0DE2EDC81AD00900821 /* yolo11m.mlpackage */; };
+		CD20C0E22EDC81AD00900821 /* yolo11n-seg.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = CD20C0DF2EDC81AD00900821 /* yolo11n-seg.mlpackage */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -31,6 +34,9 @@
 		73B032032D2E560D0003DB69 /* YOLORealTimeSwiftUI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = YOLORealTimeSwiftUI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		73B032132D2E56130003DB69 /* YOLORealTimeSwiftUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = YOLORealTimeSwiftUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		73B0321D2D2E56130003DB69 /* YOLORealTimeSwiftUIUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = YOLORealTimeSwiftUIUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		CD20C0DD2EDC81AD00900821 /* yolo11l-seg.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = "yolo11l-seg.mlpackage"; sourceTree = "<group>"; };
+		CD20C0DE2EDC81AD00900821 /* yolo11m.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = yolo11m.mlpackage; sourceTree = "<group>"; };
+		CD20C0DF2EDC81AD00900821 /* yolo11n-seg.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = "yolo11n-seg.mlpackage"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -80,6 +86,9 @@
 		73B031FA2D2E560D0003DB69 = {
 			isa = PBXGroup;
 			children = (
+				CD20C0DD2EDC81AD00900821 /* yolo11l-seg.mlpackage */,
+				CD20C0DE2EDC81AD00900821 /* yolo11m.mlpackage */,
+				CD20C0DF2EDC81AD00900821 /* yolo11n-seg.mlpackage */,
 				73B032052D2E560D0003DB69 /* YOLORealTimeSwiftUI */,
 				73B032162D2E56130003DB69 /* YOLORealTimeSwiftUITests */,
 				73B032202D2E56130003DB69 /* YOLORealTimeSwiftUIUITests */,
@@ -245,6 +254,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CD20C0E02EDC81AD00900821 /* yolo11l-seg.mlpackage in Sources */,
+				CD20C0E12EDC81AD00900821 /* yolo11m.mlpackage in Sources */,
+				CD20C0E22EDC81AD00900821 /* yolo11n-seg.mlpackage in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -405,7 +417,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"YOLORealTimeSwiftUI/Preview Content\"";
-				DEVELOPMENT_TEAM = 3MR4P6CL3X;
+				DEVELOPMENT_TEAM = N9NV32GD8G;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "$(MARKETING_VERSION)";
@@ -436,7 +448,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"YOLORealTimeSwiftUI/Preview Content\"";
-				DEVELOPMENT_TEAM = 3MR4P6CL3X;
+				DEVELOPMENT_TEAM = N9NV32GD8G;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "$(MARKETING_VERSION)";

@@ -232,4 +232,43 @@ public class YOLO: @unchecked Sendable {
     }
     return self(uiImage, returnAnnotatedImage: returnAnnotatedImage)
   }
+
+  // MARK: - Fast Prediction Methods
+
+  /// Performs optimized single-image prediction using CVPixelBuffer conversion.
+  /// This method is significantly faster than the standard prediction for single images,
+  /// especially for segmentation tasks. Includes detailed timing logs.
+  ///
+  /// - Parameter uiImage: The UIImage to process.
+  /// - Returns: A YOLOResult containing the prediction outputs.
+  /// - Note: Only available for segmentation models. Falls back to standard prediction for other tasks.
+  public func predictFast(_ uiImage: UIImage) -> YOLOResult {
+    let ciImage = CIImage(image: uiImage)!
+    return predictFast(ciImage)
+  }
+
+  /// Performs optimized single-image prediction using CVPixelBuffer conversion.
+  /// This method is significantly faster than the standard prediction for single images,
+  /// especially for segmentation tasks. Includes detailed timing logs.
+  ///
+  /// - Parameter ciImage: The CIImage to process.
+  /// - Returns: A YOLOResult containing the prediction outputs.
+  /// - Note: Only available for segmentation models. Falls back to standard prediction for other tasks.
+  public func predictFast(_ ciImage: CIImage) -> YOLOResult {
+    if let segmenter = predictor as? Segmenter {
+      return segmenter.predictOnImageFast(image: ciImage)
+    }
+    // Fall back to standard prediction for non-segmentation models
+    print("[YOLO] predictFast only optimized for segmentation, falling back to standard prediction")
+    return predictor.predictOnImage(image: ciImage)
+  }
+
+  /// Performs optimized single-image prediction using CVPixelBuffer conversion.
+  ///
+  /// - Parameter cgImage: The CGImage to process.
+  /// - Returns: A YOLOResult containing the prediction outputs.
+  public func predictFast(_ cgImage: CGImage) -> YOLOResult {
+    let ciImage = CIImage(cgImage: cgImage)
+    return predictFast(ciImage)
+  }
 }
