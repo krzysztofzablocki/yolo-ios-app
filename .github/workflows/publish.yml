@@ -35,7 +35,7 @@ jobs:
       marketing_version: ${{ steps.check_version.outputs.marketing_version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets._GITHUB_TOKEN }}
@@ -84,7 +84,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets._GITHUB_TOKEN }}
@@ -119,7 +119,7 @@ jobs:
       name: Release - TestFlight
       url: https://appstoreconnect.apple.com/apps
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
@@ -165,7 +165,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Extract PR Details
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
