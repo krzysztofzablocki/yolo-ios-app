@@ -236,4 +236,35 @@ public class YOLO: @unchecked Sendable {
     }
     return self(uiImage)
   }
+
+  // MARK: - Fast Prediction Methods
+
+  /// Performs optimized single-image prediction for segmentation models.
+  /// Non-segmentation models fall back to the standard prediction path.
+  public func predictFast(_ uiImage: UIImage) -> YOLOResult {
+    guard let ciImage = CIImage(image: uiImage) else {
+      return YOLOResult(orig_shape: .zero, boxes: [], speed: 0, names: [])
+    }
+    return predictFast(ciImage)
+  }
+
+  /// Performs optimized single-image prediction for segmentation models.
+  /// Non-segmentation models fall back to the standard prediction path.
+  public func predictFast(_ ciImage: CIImage) -> YOLOResult {
+    guard let predictor = predictor else {
+      return YOLOResult(orig_shape: .zero, boxes: [], speed: 0, names: [])
+    }
+
+    if let segmenter = predictor as? Segmenter {
+      return segmenter.predictOnImageFast(image: ciImage)
+    }
+
+    print("[YOLO] predictFast is optimized for segmentation and is using the standard path")
+    return predictor.predictOnImage(image: ciImage)
+  }
+
+  /// Performs optimized single-image prediction for segmentation models.
+  public func predictFast(_ cgImage: CGImage) -> YOLOResult {
+    predictFast(CIImage(cgImage: cgImage))
+  }
 }
