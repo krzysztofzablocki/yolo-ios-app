@@ -158,7 +158,8 @@ func generateCombinedMaskImage(
   inputWidth: Int,
   inputHeight: Int,
   threshold: Float = 0.5,
-  returnIndividualMasks: Bool = true
+  returnIndividualMasks: Bool = true,
+  returnCombinedMaskImage: Bool = true
 ) -> (CGImage?, [[[Float]]]?)? {
   // 1) Check protos shape
   let maskHeight = protos.shape[2].intValue  // 例: 160
@@ -212,7 +213,19 @@ func generateCombinedMaskImage(
     }
   }
 
-  // 6) Whether to keep individual probability maps
+  // 6) Sort by score (to control drawing order during composition)
+  let indexedObjects: [(Int, CGRect, Int, Float)] =
+    detectedObjects.enumerated().map { (i, obj) in (i, obj.0, obj.1, obj.2) }
+  let sortedObjects = indexedObjects.sorted { $0.3 < $1.3 }
+
+  var mergedPixels: [UInt8]? = nil
+  let scaleX = Float(maskWidth) / Float(inputWidth)
+  let scaleY = Float(maskHeight) / Float(inputHeight)
+  if returnCombinedMaskImage {
+    mergedPixels = [UInt8](repeating: 0, count: HW * 4)
+  }
+
+  // 7) Whether to keep individual probability maps
   var probabilityMasks: [[[Float]]]? = nil
   if returnIndividualMasks {
     probabilityMasks = Array(
@@ -222,6 +235,85 @@ func generateCombinedMaskImage(
       ),
       count: N
     )
+  }
+
+  if var mergedPixels {
+    for (originalIndex, box, classID, _) in sortedObjects {
+      let minX = Int(Float(box.minX) * scaleX)
+      let minY = Int(Float(box.minY) * scaleY)
+      let maxX = Int(Float(box.maxX) * scaleX)
+      let maxY = Int(Float(box.maxY) * scaleY)
+
+      let boxX1 = max(0, min(minX, maskWidth - 1))
+      let boxX2 = max(0, min(maxX, maskWidth - 1))
+      let boxY1 = max(0, min(minY, maskHeight - 1))
+      let boxY2 = max(0, min(maxY, maskHeight - 1))
+
+      let startIdx = originalIndex * HW
+      let colorIndex = classID % ultralyticsColors.count
+      guard let color = ultralyticsColors[colorIndex].toRGBComponents() else {
+        continue
+      }
+
+      let r = UInt8(color.red)
+      let g = UInt8(color.green)
+      let b = UInt8(color.blue)
+
+      for y in boxY1...boxY2 {
+        for x in boxX1...boxX2 {
+          let px = y * maskWidth + x
+          let maskVal = combinedMask[startIdx + px]
+          if maskVal > threshold {
+            let pixIndex = px * 4
+            mergedPixels[pixIndex + 0] = r
+            mergedPixels[pixIndex + 1] = g
+            mergedPixels[pixIndex + 2] = b
+            mergedPixels[pixIndex + 3] = 255
+          }
+        }
+      }
+    }
+
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+    let totalBytes = mergedPixels.count
+
+    guard let providerRef = CGDataProvider(data: NSData(bytes: &mergedPixels, length: totalBytes))
+    else {
+      return nil
+    }
+
+    guard
+      let mergedCGImage = CGImage(
+        width: maskWidth,
+        height: maskHeight,
+        bitsPerComponent: 8,
+        bitsPerPixel: 32,
+        bytesPerRow: maskWidth * 4,
+        space: colorSpace,
+        bitmapInfo: bitmapInfo,
+        provider: providerRef,
+        decode: nil,
+        shouldInterpolate: false,
+        intent: .defaultIntent
+      )
+    else {
+      return nil
+    }
+
+    if returnIndividualMasks, var masksArray = probabilityMasks {
+      for i in 0..<N {
+        let startIdx = i * HW
+        for k in 0..<HW {
+          let row = k / maskWidth
+          let col = k % maskWidth
+          masksArray[i][row][col] = combinedMask[startIdx + k]
+        }
+      }
+      probabilityMasks = masksArray
+    }
+
+    return (mergedCGImage, probabilityMasks)
   }
 
   if returnIndividualMasks, var masksArray = probabilityMasks {

@@ -217,6 +217,14 @@ public class Segmenter: BasePredictor, @unchecked Sendable {
       }
       logPhase("generate_masks", since: masksStart)
 
+      let drawStart = CACurrentMediaTime()
+      let annotatedImage = drawYOLOSegmentationWithBoxes(
+        ciImage: image,
+        boxes: boxes,
+        maskImage: processedMasks.0
+      )
+      logPhase("draw_annotations", since: drawStart)
+
       let resultStart = CACurrentMediaTime()
       let maskResults = Masks(masks: processedMasks.1, combinedMask: processedMasks.0)
       updateTime()
@@ -225,7 +233,7 @@ public class Segmenter: BasePredictor, @unchecked Sendable {
         orig_shape: inputSize,
         boxes: boxes,
         masks: maskResults,
-        annotatedImage: nil,
+        annotatedImage: annotatedImage,
         speed: self.t2,
         fps: 1 / self.t4,
         names: labels
@@ -350,7 +358,8 @@ public class Segmenter: BasePredictor, @unchecked Sendable {
           protos: outputs.masks,
           inputWidth: self.modelInputSize.width,
           inputHeight: self.modelInputSize.height,
-          threshold: 0.5
+          threshold: 0.5,
+          returnCombinedMaskImage: false
         ) as? (CGImage?, [[[Float]]])
       else {
         logPhase("generate_masks", since: masksStart)
