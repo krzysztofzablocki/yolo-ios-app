@@ -23,7 +23,7 @@ public class Segmenter: BasePredictor, @unchecked Sendable {
   /// Cached context reused by the single-image fast path.
   private let ciContext = CIContext(options: [
     .useSoftwareRenderer: false,
-    .cacheIntermediates: false
+    .cacheIntermediates: false,
   ])
 
   override func processObservations(for request: VNRequest, error: Error?) {
@@ -283,7 +283,7 @@ public class Segmenter: BasePredictor, @unchecked Sendable {
     let attributes: [String: Any] = [
       kCVPixelBufferCGImageCompatibilityKey as String: true,
       kCVPixelBufferCGBitmapContextCompatibilityKey as String: true,
-      kCVPixelBufferMetalCompatibilityKey as String: true
+      kCVPixelBufferMetalCompatibilityKey as String: true,
     ]
 
     var pixelBuffer: CVPixelBuffer?
